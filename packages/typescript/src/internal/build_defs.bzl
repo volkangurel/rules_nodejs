@@ -208,14 +208,31 @@ def tsc_wrapped_tsconfig(
     # f.path.
 
     node_modules_root = _compute_node_modules_root(ctx)
+
+    external_module_roots = {}
+    if getattr(ctx.attr, "fix_scoped_packages", False):
+        for dep in ctx.attr.deps:
+            package = dep.label.package
+            if dep.label.workspace_name == "npm" and \
+               package.startswith("@") and \
+               not package.startswith("@types") and \
+               len(package.split("/")) >= 2:
+                types_package = "@types/" + "__".join(package[len("@"):].split("/"))
+                external_module_roots[dep.label.package] = [
+                    "/".join([node_modules_root, p])
+                    for p in [package, types_package]
+                ]
+
     config = create_tsconfig(
         ctx,
         files,
         srcs,
         devmode_manifest = devmode_manifest,
         node_modules_root = node_modules_root,
+        external_module_roots = external_module_roots,
         **kwargs
     )
+
     config["bazelOptions"]["nodeModulesPrefix"] = node_modules_root
 
     # Override the target so we use es2015 for devmode
@@ -417,6 +434,9 @@ either:
         "deps": attr.label_list(
             aspects = DEPS_ASPECTS + [node_modules_aspect],
             doc = "Compile-time dependencies, typically other ts_library targets",
+        ),
+        "fix_scoped_packages": attr.bool(
+            doc = """Explicitly add scoped packages as paths to the compiled tsconfig.json""",
         ),
     }),
     outputs = {
